@@ -329,6 +329,11 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         down_block_additional_residuals: Optional[Tuple[torch.Tensor]] = None,
         mid_block_additional_residual: Optional[torch.Tensor] = None,
 
+        # support brushnet
+        down_block_add_samples: Optional[Tuple[torch.Tensor]] = None,
+        mid_block_add_sample: Optional[Tuple[torch.Tensor]] = None,
+        up_block_add_samples: Optional[Tuple[torch.Tensor]] = None,
+
         return_dict: bool = True,
     ) -> Union[UNet3DConditionOutput, Tuple]:
         r"""
@@ -349,6 +354,8 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         # However, the upsampling interpolation output size can be forced to fit any upsampling size
         # on the fly if necessary.
         default_overall_up_factor = 2**self.num_upsamplers
+
+        is_brushnet = down_block_add_samples is not None and mid_block_add_sample is not None and up_block_add_samples is not None
 
         # upsample size should be forwarded when sample is not a multiple of `default_overall_up_factor`
         forward_upsample_size = False
@@ -406,16 +413,35 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
 
         # down
         down_block_res_samples = (sample,)
+
+        # support brushnet
+        if is_brushnet:
+            sample = sample + down_block_add_samples.pop(0)      
+
         for downsample_block in self.down_blocks:
+            additional_residuals = {}
             if hasattr(downsample_block, "has_cross_attention") and downsample_block.has_cross_attention:
+
+                # support brushnet
+                if is_brushnet and len(down_block_add_samples)>0:
+                    additional_residuals["down_block_add_samples"] = [down_block_add_samples.pop(0) 
+                                                        for _ in range(len(downsample_block.resnets)+(downsample_block.downsamplers !=None))]
+                    
                 sample, res_samples = downsample_block(
                     hidden_states=sample,
                     temb=emb,
                     encoder_hidden_states=encoder_hidden_states,
                     attention_mask=attention_mask,
+                    **additional_residuals,
                 )
             else:
-                sample, res_samples = downsample_block(hidden_states=sample, temb=emb, encoder_hidden_states=encoder_hidden_states)
+                additional_residuals = {}
+
+                # support brushnet
+                if is_brushnet and len(down_block_add_samples)>0:
+                    additional_residuals["down_block_add_samples"] = [down_block_add_samples.pop(0) 
+                                                        for _ in range(len(downsample_block.resnets)+(downsample_block.downsamplers !=None))]
+                sample, res_samples = downsample_block(hidden_states=sample, temb=emb, encoder_hidden_states=encoder_hidden_states, **additional_residuals)
 
             down_block_res_samples += res_samples
 
@@ -431,6 +457,10 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
         sample = self.mid_block(
             sample, emb, encoder_hidden_states=encoder_hidden_states, attention_mask=attention_mask
         )
+
+        # support brushnet
+        if is_brushnet:
+            sample = sample + mid_block_add_sample
 
         # support controlnet
         if mid_block_additional_residual is not None:
@@ -451,6 +481,13 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
                 upsample_size = down_block_res_samples[-1].shape[2:]
 
             if hasattr(upsample_block, "has_cross_attention") and upsample_block.has_cross_attention:
+
+                additional_residuals = {}
+
+                # support brushnet
+                if is_brushnet and len(up_block_add_samples)>0:
+                    additional_residuals["up_block_add_samples"] = [up_block_add_samples.pop(0) 
+                                                        for _ in range(len(upsample_block.resnets)+(upsample_block.upsamplers !=None))]                
                 sample = upsample_block(
                     hidden_states=sample,
                     temb=emb,
@@ -458,10 +495,22 @@ class UNet3DConditionModel(ModelMixin, ConfigMixin):
                     encoder_hidden_states=encoder_hidden_states,
                     upsample_size=upsample_size,
                     attention_mask=attention_mask,
+                    **additional_residuals,
                 )
             else:
+                additional_residuals = {}
+
+                # support brushnet
+                if is_brushnet and len(up_block_add_samples)>0:
+                    additional_residuals["up_block_add_samples"] = [up_block_add_samples.pop(0) 
+                                                        for _ in range(len(upsample_block.resnets)+(upsample_block.upsamplers !=None))]
                 sample = upsample_block(
-                    hidden_states=sample, temb=emb, res_hidden_states_tuple=res_samples, upsample_size=upsample_size, encoder_hidden_states=encoder_hidden_states,
+                    hidden_states=sample, 
+                    temb=emb, 
+                    res_hidden_states_tuple=res_samples, 
+                    upsample_size=upsample_size, 
+                    encoder_hidden_states=encoder_hidden_states,
+                    **additional_residuals,
                 )
 
         # post-process

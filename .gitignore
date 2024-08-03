@@ -10,7 +10,6 @@ ossutil_output/
 scripts/*
 !scripts/animate.py
 
-*.ipynb
 *.safetensors
 *.ckpt
 

@@ -7,7 +7,7 @@
   motion_module:    "models/Motion_Module/v3_sd15_mm.ckpt"
 
   controlnet_config: "configs/inference/sparsectrl/latent_condition.yaml"
-  controlnet_path:   "models/SparseCtrl/v3_sd15_sparsectrl_rgb.ckpt"
+  controlnet_path:   "models/Motion_Module/v3_sd15_sparsectrl_rgb.ckpt"
 
   H: 256
   W: 384
@@ -35,7 +35,7 @@
   motion_module:    "models/Motion_Module/v3_sd15_mm.ckpt"
 
   controlnet_config: "configs/inference/sparsectrl/latent_condition.yaml"
-  controlnet_path:   "models/SparseCtrl/v3_sd15_sparsectrl_rgb.ckpt"
+  controlnet_path:   "models/Motion_Module/v3_sd15_sparsectrl_rgb.ckpt"
 
   H: 256
   W: 384
@@ -64,7 +64,7 @@
   motion_module:    "models/Motion_Module/v3_sd15_mm.ckpt"
 
   controlnet_config: "configs/inference/sparsectrl/latent_condition.yaml"
-  controlnet_path:   "models/SparseCtrl/v3_sd15_sparsectrl_rgb.ckpt"
+  controlnet_path:   "models/Motion_Module/v3_sd15_sparsectrl_rgb.ckpt"
 
   H: 256
   W: 384
@@ -95,7 +95,7 @@
   motion_module:    "models/Motion_Module/v3_sd15_mm.ckpt"
 
   controlnet_config: "configs/inference/sparsectrl/latent_condition.yaml"
-  controlnet_path:   "models/SparseCtrl/v3_sd15_sparsectrl_rgb.ckpt"
+  controlnet_path:   "models/Motion_Module/v3_sd15_sparsectrl_rgb.ckpt"
 
   H: 256
   W: 384

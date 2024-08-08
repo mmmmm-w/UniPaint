@@ -13,6 +13,7 @@ scripts/*
 *.safetensors
 *.ckpt
 
+data/*
 models/*
 !models/StableDiffusion/
 models/StableDiffusion/*

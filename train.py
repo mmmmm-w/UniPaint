@@ -34,10 +34,10 @@ from diffusers.utils.import_utils import is_xformers_available
 import transformers
 from transformers import CLIPTextModel, CLIPTokenizer
 
-from animatediff.data.dataset import WebVid10M
-from animatediff.models.unet import UNet3DConditionModel
-from animatediff.pipelines.pipeline_animation import AnimationPipeline
-from animatediff.utils.util import save_videos_grid, zero_rank_print
+from unipaint.data.dataset import WebVid10M
+from unipaint.models.unet import UNet3DConditionModel
+from unipaint.pipelines.pipeline_animation import AnimationPipeline
+from unipaint.utils.util import save_videos_grid, zero_rank_print
 
 
 

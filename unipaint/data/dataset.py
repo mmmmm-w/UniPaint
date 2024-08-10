@@ -38,7 +38,7 @@ class WebVid10M(Dataset):
     
     def get_batch(self, idx):
         video_dict = self.dataset[idx]
-        videoid, name, page_dir = video_dict['videoid'], video_dict['name'], video_dict['page_dir']
+        videoid, name = video_dict['videoid'], video_dict['name']
         
         video_dir    = os.path.join(self.video_folder, f"{videoid}.mp4")
         video_reader = VideoReader(video_dir)

@@ -386,8 +386,8 @@ class AnimationPipeline(DiffusionPipeline):
         controlnet_conditioning_scale: Union[float, List[float]] = 1.0,
 
         # support brushnet
-        init_video : torch.FloatTensor = None, #should be b c f h w, c=3, [0,1]
-        mask_video : torch.FloatTensor = None, #should be b c f h w, c=3, [0,1], 1 for masked place
+        init_video : torch.FloatTensor = None, #should be b c f h w, c=3, [-1,1]
+        mask_video : torch.FloatTensor = None, #should be b c f h w, c=3, [-1,1], 1 for masked place
         brushnet_conditioning_scale: Union[float, List[float]] = 1.0,
         control_guidance_start: Union[float, List[float]] = 0.0,
         control_guidance_end: Union[float, List[float]] = 1.0,

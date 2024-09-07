@@ -2,6 +2,7 @@ image_finetune: false
 
 output_dir: "outputs"
 pretrained_model_path: "models/StableDiffusion/stable-diffusion-v1-5"
+brushnet_path: "models/BrushNet/random_mask_brushnet_ckpt"
 
 unet_additional_kwargs:
   use_motion_module              : true
@@ -28,13 +29,24 @@ noise_scheduler_kwargs:
   clip_sample:         false
 
 train_data:
-  csv_path:        "path_to_csv_file"
-  video_folder:    "path_to_video_foler"
+  csv_path:        "data/webvid-10M/train.csv"
+  video_folder:    "/mnt/data/user/fan_xiaoran/data/videos/webvid-10M/videos"
   sample_size:     256
   sample_stride:   4
   sample_n_frames: 16
 
 validation_data:
+  video_path: 
+    - "outpaint_videos/SB_Eagle.mp4"
+    - "outpaint_videos/SB_Bear.mp4"
+    - "outpaint_videos/SB_Dog1.mp4"
+    - "outpaint_videos/SB_Running4.mp4"
+  unipaint_prompt: 
+    - "an eagle"
+    - "a bear walking in a forest"
+    - "a white fluffy dog running"
+    - "a man in blue running"
+  unipaint_n_prompt: "worst quality, low quality, letterboxed"
   prompts:
     - "Snow rocky mountains peaks canyon. Snow blanketed rocky mountains surround and shadow deep canyons."
     - "A drone view of celebration with Christma tree and fireworks, starry sky - background."
@@ -47,20 +59,22 @@ trainable_modules:
   - "motion_modules."
 
 unet_checkpoint_path: ""
+motion_module_path: "models/Motion_Module/v3_sd15_mm.ckpt"
 
 learning_rate:    1.e-4
 train_batch_size: 4
+num_workers: 1
 
-max_train_epoch:      -1
-max_train_steps:      100
-checkpointing_epochs: -1
-checkpointing_steps:  60
+max_train_epoch:      5
+max_train_steps:      -1
+checkpointing_epochs: 5
+checkpointing_steps:  500
 
-validation_steps:       5000
-validation_steps_tuple: [2, 50]
+validation_steps:       500
+validation_steps_tuple: [1,50,100,200]
 
 global_seed: 42
-mixed_precision_training: true
+mixed_precision_training: false
 enable_xformers_memory_efficient_attention: True
 
 is_debug: False

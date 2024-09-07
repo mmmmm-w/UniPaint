@@ -37,6 +37,8 @@ from transformers import CLIPTextModel, CLIPTokenizer
 from unipaint.data.dataset import WebVid10M
 from unipaint.models.unet import UNet3DConditionModel
 from unipaint.pipelines.pipeline_unipaint import AnimationPipeline
+from unipaint.models.unipaint.brushnet import BrushNetModel
+from unipaint.utils.mask import RectangularMaskGenerator
 from unipaint.utils.util import save_videos_grid, zero_rank_print
 
 
@@ -83,6 +85,7 @@ def main(
     
     output_dir: str,
     pretrained_model_path: str,
+    brushnet_path: str,
 
     train_data: Dict,
     validation_data: Dict,
@@ -90,6 +93,7 @@ def main(
     cfg_random_null_text_ratio: float = 0.1,
     
     unet_checkpoint_path: str = "",
+    motion_module_path: str = "",
     unet_additional_kwargs: Dict = {},
     ema_decay: float = 0.9999,
     noise_scheduler_kwargs = None,
@@ -105,7 +109,7 @@ def main(
     lr_scheduler: str = "constant",
 
     trainable_modules: Tuple[str] = (None, ),
-    num_workers: int = 32,
+    num_workers: int = 8,
     train_batch_size: int = 1,
     adam_beta1: float = 0.9,
     adam_beta2: float = 0.999,
@@ -173,6 +177,9 @@ def main(
         )
     else:
         unet = UNet2DConditionModel.from_pretrained(pretrained_model_path, subfolder="unet")
+
+    # Load Brushnet
+    brushnet = BrushNetModel.from_pretrained(brushnet_path)
         
     # Load pretrained unet weights
     if unet_checkpoint_path != "":
@@ -188,6 +195,7 @@ def main(
     # Freeze vae and text_encoder
     vae.requires_grad_(False)
     text_encoder.requires_grad_(False)
+    brushnet.requires_grad_(False)
     
     # Set unet trainable parameters
     unet.requires_grad_(False)
@@ -224,6 +232,7 @@ def main(
     # Move models to GPU
     vae.to(local_rank)
     text_encoder.to(local_rank)
+    brushnet.to(local_rank)
 
     # Get the training dataset
     train_dataset = WebVid10M(**train_data, is_image=image_finetune)
@@ -242,7 +251,7 @@ def main(
         shuffle=False,
         sampler=distributed_sampler,
         num_workers=num_workers,
-        pin_memory=True,
+        pin_memory=False,
         drop_last=True,
     )
 
@@ -269,7 +278,7 @@ def main(
     # Validation pipeline
     if not image_finetune:
         validation_pipeline = AnimationPipeline(
-            unet=unet, vae=vae, tokenizer=tokenizer, text_encoder=text_encoder, scheduler=noise_scheduler,
+            unet=unet, vae=vae, tokenizer=tokenizer, text_encoder=text_encoder, scheduler=noise_scheduler, brushnet=brushnet
         ).to("cuda")
     else:
         validation_pipeline = StableDiffusionPipeline.from_pretrained(
@@ -333,27 +342,26 @@ def main(
             
             # Convert videos to latent space            
             pixel_values = batch["pixel_values"].to(local_rank)
+
             video_length = pixel_values.shape[1]
             with torch.no_grad():
                 if not image_finetune:
                     pixel_values = rearrange(pixel_values, "b f c h w -> (b f) c h w")
+
                     latents = vae.encode(pixel_values).latent_dist
-                    latents = latents.sample()
+                    latents = latents.sample() * 0.18215
                     latents = rearrange(latents, "(b f) c h w -> b c f h w", f=video_length)
                 else:
                     latents = vae.encode(pixel_values).latent_dist
-                    latents = latents.sample()
-
-                latents = latents * 0.18215
+                    latents = latents.sample() * 0.18215
+                
 
             # Sample noise that we'll add to the latents
             noise = torch.randn_like(latents)
             bsz = latents.shape[0]
-            
             # Sample a random timestep for each video
             timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device)
             timesteps = timesteps.long()
-            
             # Add noise to the latents according to the noise magnitude at each timestep
             # (this is the forward diffusion process)
             noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
@@ -375,6 +383,8 @@ def main(
 
             # Predict the noise residual and compute loss
             # Mixed-precision training
+
+
             with torch.cuda.amp.autocast(enabled=mixed_precision_training):
                 model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
                 loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
@@ -384,6 +394,7 @@ def main(
             # Backpropagate
             if mixed_precision_training:
                 scaler.scale(loss).backward()
+
                 """ >>> gradient clipping >>> """
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(unet.parameters(), max_grad_norm)

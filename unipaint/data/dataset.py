@@ -51,7 +51,7 @@ class WebVid10M(Dataset):
         else:
             batch_index = [random.randint(0, video_length - 1)]
 
-        pixel_values = torch.from_numpy(video_reader.get_batch(batch_index).asnumpy()).permute(0, 3, 1, 2).contiguous()
+        pixel_values = torch.from_numpy(video_reader.get_batch(batch_index).numpy()).permute(0, 3, 1, 2).contiguous()
         pixel_values = pixel_values / 255.
         del video_reader
 
@@ -94,5 +94,3 @@ if __name__ == "__main__":
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=4, num_workers=16,)
     for idx, batch in enumerate(dataloader):
         print(batch["pixel_values"].shape, len(batch["text"]))
-        # for i in range(batch["pixel_values"].shape[0]):
-        #     save_videos_grid(batch["pixel_values"][i:i+1].permute(0,2,1,3,4), os.path.join(".", f"{idx}-{i}.mp4"), rescale=True)

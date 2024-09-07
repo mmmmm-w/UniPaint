@@ -1,0 +1,80 @@
+image_finetune: false
+
+output_dir: "outputs"
+pretrained_model_path: "models/StableDiffusion/stable-diffusion-v1-5"
+brushnet_path: "models/BrushNet/random_mask_brushnet_ckpt"
+
+unet_additional_kwargs:
+  use_motion_module              : true
+  motion_module_resolutions      : [ 1,2,4,8 ]
+  unet_use_cross_frame_attention : false
+  unet_use_temporal_attention    : false
+
+  motion_module_type: Vanilla
+  motion_module_kwargs:
+    num_attention_heads                : 8
+    num_transformer_block              : 1
+    attention_block_types              : [ "Temporal_Self", "Temporal_Self" ]
+    temporal_position_encoding         : true
+    temporal_position_encoding_max_len : 24
+    temporal_attention_dim_div         : 1
+    zero_initialize                    : true
+
+noise_scheduler_kwargs:
+  num_train_timesteps: 1000
+  beta_start:          0.00085
+  beta_end:            0.012
+  beta_schedule:       "linear"
+  steps_offset:        1
+  clip_sample:         false
+
+train_data:
+  img_folder:      "./data/YoutubeVOS/train"
+  ann_file:        "./data/YoutubeVOS/meta_expressions/train/meta_expressions.json"
+  sample_size:     256
+  return_masks:    true
+  num_frames:      16
+
+validation_data:
+  video_path: 
+    - "outpaint_videos/SB_Eagle.mp4"
+    - "outpaint_videos/SB_Bear.mp4"
+    - "outpaint_videos/SB_Dog1.mp4"
+    - "outpaint_videos/SB_Running4.mp4"
+  unipaint_prompt: 
+    - "A close-up of a bald eagle with a white head, sharp yellow beak, and piercing eyes. Its dark brown body contrasts with the snowy or watery blurred background"
+    - "A large brown bear walking through a grassy, wetland area. The bear’s thick fur and muscular frame stand out against the green surroundings, with trees blurred in the background. "
+    - "a small, fluffy white dog, likely a Maltese, walking on a paved surface"
+    - "A muscular man running outdoors in a sleeveless shirt. The background shows trees and a soft, sunlit sky, suggesting early morning or late afternoon. His expression is focused and determined."
+  unipaint_n_prompt: "worst quality, low quality, letterboxed"
+  prompts:
+    - "Snow rocky mountains peaks canyon. Snow blanketed rocky mountains surround and shadow deep canyons."
+    - "A drone view of celebration with Christma tree and fireworks, starry sky - background."
+    - "Robot dancing in times square."
+    - "Pacific coast, carmel by the sea ocean and waves."
+  num_inference_steps: 25
+  guidance_scale: 8.
+
+trainable_modules:
+  - "motion_modules."
+
+unet_checkpoint_path: "outputs/unipaint_training_mask_tracking_mask/checkpoints/checkpoint-epoch-1.ckpt"
+motion_module_path: "" # models/Motion_Module/v3_sd15_mm.ckpt
+
+learning_rate:    1.e-4
+train_batch_size: 2
+num_workers: 1
+
+max_train_epoch:      10
+max_train_steps:      -1
+checkpointing_epochs: 1
+checkpointing_steps:  1000
+
+validation_steps:       1000
+validation_steps_tuple: [1,100,500]
+
+global_seed: 42
+mixed_precision_training: false
+enable_xformers_memory_efficient_attention: True
+
+is_debug: False

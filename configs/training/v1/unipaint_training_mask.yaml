@@ -42,7 +42,7 @@ validation_data:
     - "outpaint_videos/SB_Dog1.mp4"
     - "outpaint_videos/SB_Running4.mp4"
   unipaint_prompt: 
-    - "A close-up of a bald eagle with a white head, sharp yellow beak, and piercing eyes. Its dark brown body contrasts with the snowy or watery blurred background"
+    - "A close-up of a bald eagle with a white head, sharp yellow beak, and piercing eyes. Its dark brown body contrasts with the watery blurred background"
     - "A large brown bear walking through a grassy, wetland area. The bear’s thick fur and muscular frame stand out against the green surroundings, with trees blurred in the background. "
     - "a small, fluffy white dog, likely a Maltese, walking on a paved surface"
     - "A muscular man running outdoors in a sleeveless shirt. The background shows trees and a soft, sunlit sky, suggesting early morning or late afternoon. His expression is focused and determined."
@@ -58,23 +58,27 @@ validation_data:
 trainable_modules:
   - "motion_modules."
 
-unet_checkpoint_path: "outputs/unipaint_training_mask_tracking_mask/checkpoints/checkpoint-epoch-1.ckpt"
-motion_module_path: "" # models/Motion_Module/v3_sd15_mm.ckpt
+unet_checkpoint_path: "./outputs/interpolation_stride_2/checkpoints/checkpoint-epoch-10.ckpt"
+motion_module_path: "" #models/Motion_Module/v3_sd15_mm.ckpt
 
 learning_rate:    1.e-4
-train_batch_size: 2
-num_workers: 1
+train_batch_size: 6
+num_workers: 4
 
-max_train_epoch:      10
+max_train_epoch:      20
 max_train_steps:      -1
 checkpointing_epochs: 1
 checkpointing_steps:  1000
 
 validation_steps:       1000
-validation_steps_tuple: [1,100,500]
+validation_steps_tuple: [100,200]
 
 global_seed: 42
 mixed_precision_training: false
 enable_xformers_memory_efficient_attention: True
 
 is_debug: False
+
+#mask config
+mask_config:
+  mix_scale: 0.4

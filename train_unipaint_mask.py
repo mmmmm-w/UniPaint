@@ -88,6 +88,7 @@ def main(
 
     train_data: Dict,
     validation_data: Dict,
+    mask_config: Dict,
     cfg_random_null_text: bool = True,
     cfg_random_null_text_ratio: float = 0.1,
     
@@ -273,16 +274,16 @@ def main(
 
     #Create mask generators
     mask_generators = [
-        StaticRectangularMaskGenerator(mask_l=[0,0.4],
-                                        mask_r=[0,0.4],
-                                        mask_t=[0,0.4],
-                                        mask_b=[0,0.4]),
-        MovingRectangularMaskGenerator(rect_height_range=(0.2, 0.6), rect_width_range=(0.2, 0.6)),
-        MarginalMaskGenerator(mask_l=[0,0.4],
-                            mask_r=[0,0.4],
-                            mask_t=[0,0.4],
-                            mask_b=[0,0.4]), 
-        InterpolationMaskGenerator(stride_range=(2, 5))
+    StaticRectangularMaskGenerator(mask_l=[0,0.4],
+                                    mask_r=[0,0.4],
+                                    mask_t=[0,0.4],
+                                    mask_b=[0,0.4]),  # Example generator with fixed sizes
+    MovingRectangularMaskGenerator(rect_height_range=(0.2, 0.6), rect_width_range=(0.2, 0.6)),
+    MarginalMaskGenerator(mask_l=[0,0.4],
+                        mask_r=[0,0.4],
+                        mask_t=[0,0.4],
+                        mask_b=[0,0.4]),
+    InterpolationMaskGenerator(stride_range=(2,5))
     ]
 
     # Get the training iteration
@@ -357,7 +358,7 @@ def main(
 
             # Data batch sanity check
             if epoch == first_epoch and step == 0:
-                pixel_values, texts, masks = batch['pixel_values'].cpu(), batch['text'], batch["masks"].cpu()
+                pixel_values, texts = batch['pixel_values'].cpu(), batch['text']
                 if not image_finetune:
                     pixel_values = rearrange(pixel_values, "b f c h w -> b c f h w")
                     for idx, (pixel_value, text) in enumerate(zip(pixel_values, texts)):
@@ -373,17 +374,19 @@ def main(
             pixel_values = batch["pixel_values"].to(local_rank)
 
             # Randomly select a mask generator or use the pre-defined mask
-            if random.random() < 0.3:  # 30% chance to use a random mask generator, adjust probability as needed
+            # NOTICE: the mask take in (b c f h w)
+            if random.random() < mask_config.mix_scale:  #use a random mask generator, adjust probability as needed
                 selected_mask_generator = random.choice(mask_generators)
-                mask = selected_mask_generator(pixel_values).to(local_rank)  # Generate the mask using the selected generator
-                batch['text'] = ["" for name in batch['text']]
+                mask = selected_mask_generator(rearrange(pixel_values, "b f c h w -> b c f h w")).to(local_rank)  # Generate the mask using the selected generator
+                mask = rearrange(mask, "b c f h w -> b f c h w")
 
             else:
                 mask = batch["masks"].to(local_rank)  # Use the pre-defined object-tracking mask
 
             masked_pixels = torch.clone(pixel_values).to(local_rank)
             masked_pixels[mask==1]=-1
-
+            mask = mask * 2 - 1
+            
             video_length = pixel_values.shape[1]
             with torch.no_grad():
                 if not image_finetune:
@@ -435,7 +438,6 @@ def main(
                 raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
 
             # Predict the noise residual and compute loss
-            # Mixed-precision training
 
             control_model_input = noisy_latents
             control_model_input = rearrange(control_model_input, "b c f h w -> (b f) c h w")
@@ -519,7 +521,7 @@ def main(
                     del vr
                     video = rearrange(video, "f h w c -> c f h w")
                     frame = torch.clone(torch.unsqueeze(video/255, dim=0)).to(local_rank)
-                    mask_generator = mask_generators[idx]
+                    mask_generator = random.choice(mask_generators)
                     mask = mask_generator(frame)
                     frame[mask==1]=0
                     mask = mask.to(local_rank)
@@ -537,9 +539,9 @@ def main(
                         height              = 512,
                         video_length        = 16,
 
-                        init_video = frame[:,:,:],
-                        mask_video = mask[:,:,:],
-                        brushnet_conditioning_scale = 0.8,
+                        init_video = frame,
+                        mask_video = mask,
+                        brushnet_conditioning_scale = 1.0,
                         control_guidance_start = 0.0,
                         control_guidance_end = 1.0,
                         ).videos

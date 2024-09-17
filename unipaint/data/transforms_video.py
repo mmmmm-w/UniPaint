@@ -15,8 +15,6 @@ from numpy import random as rand
 from PIL import Image
 import cv2
 
-
-
 class Check(object):
     def __init__(self,):
         pass

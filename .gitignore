@@ -7,9 +7,6 @@ __pycache__/
 ossutil_output/
 .ossutil_checkpoint/
 
-scripts/*
-!scripts/animate.py
-
 *.safetensors
 *.ckpt
 

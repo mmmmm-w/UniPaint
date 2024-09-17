@@ -7,7 +7,7 @@ from torch.nn import functional as F
 
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.utils import BaseOutput, logging
-from diffusers.models.modeling_utils import ModelMixin
+from diffusers.modeling_utils import ModelMixin
 
 from .embeddings import TextImageProjection, TextImageTimeEmbedding, TextTimeEmbedding, TimestepEmbedding, Timesteps
 from .unet_2d_condition import UNet2DConditionModel

@@ -48,11 +48,11 @@ class MovingRectangularMaskGenerator:
 
         Args:
         - control (torch.Tensor): The control tensor to apply the mask to.
-                                  Expected shape: (batch, num_frames, channels, height, width)
+                                  Expected shape: (batch, channels, frames, height, width)
 
         Returns:
         - mask (torch.Tensor): The generated moving rectangular mask tensor.
-                               Shape: (batch, num_frames, channels, height, width)
+                               Shape: (batch, channels, frames, height, width)
         """
         # Control tensor dimensions
         batch_size = control.shape[0]
@@ -123,7 +123,7 @@ class InterpolationMaskGenerator:
     def __init__(self, stride_range=(2, 5)) -> None:
         """
         Initialize the InterpolationMaskGenerator.
-        This generator will mask out every second frame (i.e., 0 for unmasked frames, 1 for masked frames).
+        This generator will mask out every n frame (i.e., 0 for unmasked frames, 1 for masked frames).
         """
         self.stride_range = stride_range
 
@@ -137,17 +137,17 @@ class InterpolationMaskGenerator:
 
         Returns:
         - mask (torch.Tensor): The generated interpolation mask tensor.
-                               Shape: (batch, num_frames, channels, height, width)
+                               Shape: (batch, channels, frames, height, width)
         """
-        # Initialize a mask of ones (fully unmasked to begin with)
-        mask = torch.zeros_like(control)
+        # Initialize a mask of ones (fully masked to begin with)
+        mask = torch.ones_like(control)
         batch_size = control.shape[0]
 
         for batch_idx in range(batch_size):
             # Randomly select a stride from the specified range
             stride = torch.randint(self.stride_range[0], self.stride_range[1] + 1, (1,)).item()
 
-            # Mask frames with the random stride, starting from frame index 1
-            mask[batch_idx, :, 1::stride, :, :] = 1  # Mask out frames at intervals of the random stride
+            # UnMask frames with the random stride, starting from frame index 0
+            mask[batch_idx, :, 0::stride, :, :] = 0  # Unmask frames at intervals of the random stride
 
         return mask

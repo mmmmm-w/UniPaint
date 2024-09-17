@@ -86,7 +86,6 @@ class PatchedLoraProjection(torch.nn.Module):
         deprecate("PatchedLoraProjection", "1.0.0", deprecation_message)
 
         super().__init__()
-        from ..models.lora import LoRALinearLayer
 
         self.regular_linear_layer = regular_linear_layer
 

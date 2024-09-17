@@ -15,7 +15,7 @@ import numpy as np
 from unipaint.utils.util import load_weights,save_videos_grid
 import decord
 decord.bridge.set_bridge("torch")
-from unipaint.utils.mask import RectangularMaskGenerator
+from unipaint.utils.mask import StaticRectangularMaskGenerator
 
 path = "models/StableDiffusion/stable-diffusion-v1-5"
 brushnet_path = "models/BrushNet/random_mask_brushnet_ckpt"

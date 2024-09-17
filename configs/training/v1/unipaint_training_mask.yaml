@@ -55,6 +55,34 @@ validation_data:
   num_inference_steps: 25
   guidance_scale: 8.
 
+#mask config
+mask_config:
+  static:
+    mix_rate: 0.2  # 20% chance
+    mask_l: [0.0, 0.4]
+    mask_r: [0.0, 0.4]
+    mask_t: [0.0, 0.4]
+    mask_b: [0.0, 0.4]
+  
+  moving:
+    mix_rate: 0.3  # 30% chance
+    rect_height_range: [0.2, 0.6]
+    rect_width_range: [0.2, 0.6]
+  
+  marginal:
+    mix_rate: 0.2  # 20% chance
+    mask_l: [0.0, 0.4]
+    mask_r: [0.0, 0.4]
+    mask_t: [0.0, 0.4]
+    mask_b: [0.0, 0.4]
+  
+  interpolation:
+    mix_rate: 0.1  # 10% chance
+    stride_range: [2, 5]
+
+  dataset_mask:
+    mix_rate: 0.2  # 20% chance of using the dataset-provided mask
+
 trainable_modules:
   - "motion_modules."
 
@@ -79,6 +107,3 @@ enable_xformers_memory_efficient_attention: True
 
 is_debug: False
 
-#mask config
-mask_config:
-  mix_scale: 0.4

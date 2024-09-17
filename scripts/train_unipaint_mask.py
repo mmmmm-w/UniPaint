@@ -73,8 +73,6 @@ def init_dist(launcher="slurm", backend='nccl', port=29500, **kwargs):
     
     return local_rank
 
-
-
 def main(
     image_finetune: bool,
     
@@ -272,19 +270,42 @@ def main(
         drop_last=True,
     )
 
-    #Create mask generators
+    # Create mask generators with mix rates
     mask_generators = [
-    StaticRectangularMaskGenerator(mask_l=[0,0.4],
-                                    mask_r=[0,0.4],
-                                    mask_t=[0,0.4],
-                                    mask_b=[0,0.4]),  # Example generator with fixed sizes
-    MovingRectangularMaskGenerator(rect_height_range=(0.2, 0.6), rect_width_range=(0.2, 0.6)),
-    MarginalMaskGenerator(mask_l=[0,0.4],
-                        mask_r=[0,0.4],
-                        mask_t=[0,0.4],
-                        mask_b=[0,0.4]),
-    InterpolationMaskGenerator(stride_range=(2,5))
+        (StaticRectangularMaskGenerator(
+            mask_l=mask_config.static.mask_l,
+            mask_r=mask_config.static.mask_r,
+            mask_t=mask_config.static.mask_t,
+            mask_b=mask_config.static.mask_b
+        ), mask_config.static.mix_rate),
+        
+        (MovingRectangularMaskGenerator(
+            rect_height_range=mask_config.moving.rect_height_range,
+            rect_width_range=mask_config.moving.rect_width_range
+        ), mask_config.moving.mix_rate),
+        
+        (MarginalMaskGenerator(
+            mask_l=mask_config.marginal.mask_l,
+            mask_r=mask_config.marginal.mask_r,
+            mask_t=mask_config.marginal.mask_t,
+            mask_b=mask_config.marginal.mask_b
+        ), mask_config.marginal.mix_rate),
+        
+        (InterpolationMaskGenerator(
+            stride_range=mask_config.interpolation.stride_range
+        ), mask_config.interpolation.mix_rate)
     ]
+
+    # Define a placeholder for dataset-provided mask with its mix rate
+    dataset_mask_mix_rate = mask_config.dataset_mask.mix_rate
+
+    generators = [gen[0] for gen in mask_generators]
+
+    mix_rates = [gen[1] for gen in mask_generators]
+    mix_rates.append(dataset_mask_mix_rate)
+    total_rate = sum(mix_rates)
+    normalized_rates = [rate / total_rate for rate in mix_rates]
+
 
     # Get the training iteration
     if max_train_steps == -1:
@@ -375,16 +396,21 @@ def main(
 
             # Randomly select a mask generator or use the pre-defined mask
             # NOTICE: the mask take in (b c f h w)
-            if random.random() < mask_config.mix_scale:  #use a random mask generator, adjust probability as needed
-                selected_mask_generator = random.choice(mask_generators)
+            # Add the dataset mask to the list
+            temporary_generators = generators + ["dataset_mask"]
+
+            # Randomly select a mask generator or dataset mask based on mix rates
+            selected_mask_generator = random.choices(temporary_generators, weights=normalized_rates, k=1)[0]
+
+            # Apply the selected mask to the data
+            if selected_mask_generator == "dataset_mask":
+                mask = batch["masks"].to(local_rank)  # Use the dataset-provided mask
+            else:
                 mask = selected_mask_generator(rearrange(pixel_values, "b f c h w -> b c f h w")).to(local_rank)  # Generate the mask using the selected generator
                 mask = rearrange(mask, "b c f h w -> b f c h w")
 
-            else:
-                mask = batch["masks"].to(local_rank)  # Use the pre-defined object-tracking mask
-
             masked_pixels = torch.clone(pixel_values).to(local_rank)
-            masked_pixels[mask==1]=-1
+            masked_pixels[mask==1] = -1 #Blackout the masked area
             mask = mask * 2 - 1
             
             video_length = pixel_values.shape[1]

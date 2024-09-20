@@ -43,7 +43,7 @@ validation_data:
     - "outpaint_videos/SB_Running4.mp4"
   unipaint_prompt: 
     - "A close-up of a bald eagle with a white head, sharp yellow beak, and piercing eyes. Its dark brown body contrasts with the watery blurred background"
-    - "A large brown bear walking through a grassy, wetland area. The bear’s thick fur and muscular frame stand out against the green surroundings, with trees blurred in the background. "
+    - "A large brown bear walking through a grassy, wetland area. The bear’s thick fur and muscular frame stand out against the green surroundings, with trees blurred in the background."
     - "a small, fluffy white dog, likely a Maltese, walking on a paved surface"
     - "A muscular man running outdoors in a sleeveless shirt. The background shows trees and a soft, sunlit sky, suggesting early morning or late afternoon. His expression is focused and determined."
   unipaint_n_prompt: "worst quality, low quality, letterboxed"
@@ -58,39 +58,41 @@ validation_data:
 #mask config
 mask_config:
   static:
-    mix_rate: 0.2  # 20% chance
-    mask_l: [0.0, 0.4]
-    mask_r: [0.0, 0.4]
-    mask_t: [0.0, 0.4]
-    mask_b: [0.0, 0.4]
+    mix_rate: 0.1  
+    mask_l: [0.1, 0.4]
+    mask_r: [0.1, 0.4]
+    mask_t: [0.1, 0.4]
+    mask_b: [0.1, 0.4]
   
   moving:
-    mix_rate: 0.3  # 30% chance
+    mix_rate: 0.1  
     rect_height_range: [0.2, 0.6]
     rect_width_range: [0.2, 0.6]
   
   marginal:
-    mix_rate: 0.2  # 20% chance
-    mask_l: [0.0, 0.4]
-    mask_r: [0.0, 0.4]
-    mask_t: [0.0, 0.4]
-    mask_b: [0.0, 0.4]
+    mix_rate: 0.3  
+    mask_l: [0.0, 0.3]
+    mask_r: [0.0, 0.3]
+    mask_t: [0.0, 0.3]
+    mask_b: [0.0, 0.3]
   
   interpolation:
-    mix_rate: 0.1  # 10% chance
-    stride_range: [2, 5]
+    mix_rate: 0.5 
+    stride_range: [2, 4]
 
   dataset_mask:
-    mix_rate: 0.2  # 20% chance of using the dataset-provided mask
+    mix_rate: 0.5  
 
 trainable_modules:
   - "motion_modules."
 
-unet_checkpoint_path: "./outputs/interpolation_stride_2/checkpoints/checkpoint-epoch-10.ckpt"
-motion_module_path: "" #models/Motion_Module/v3_sd15_mm.ckpt
+unet_checkpoint_path: ""
+motion_module_path: "models/Motion_Module/v3_sd15_mm.ckpt"
+
+moe: true
 
 learning_rate:    1.e-4
-train_batch_size: 6
+train_batch_size: 5
 num_workers: 4
 
 max_train_epoch:      20
@@ -99,7 +101,7 @@ checkpointing_epochs: 1
 checkpointing_steps:  1000
 
 validation_steps:       1000
-validation_steps_tuple: [100,200]
+validation_steps_tuple: [100,200,500]
 
 global_seed: 42
 mixed_precision_training: false

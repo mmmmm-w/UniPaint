@@ -37,6 +37,7 @@ from unipaint.pipelines.pipeline_unipaint import AnimationPipeline
 from unipaint.models.unipaint.brushnet import BrushNetModel
 from unipaint.utils.mask import StaticRectangularMaskGenerator, MovingRectangularMaskGenerator, MarginalMaskGenerator, InterpolationMaskGenerator
 from unipaint.utils.util import save_videos_grid, zero_rank_print
+from unipaint.utils.convert_to_moe import task_context, replace_ffn_with_moeffn
 
 import decord
 decord.bridge.set_bridge("torch")
@@ -124,6 +125,7 @@ def main(
 
     global_seed: int = 42,
     is_debug: bool = False,
+    moe: bool = False,
 ):
     check_min_version("0.10.0.dev0")
 
@@ -180,18 +182,6 @@ def main(
     brushnet = BrushNetModel.from_pretrained(brushnet_path)
         
     # Load pretrained unet weights
-    if unet_checkpoint_path != "":
-        zero_rank_print(f"from checkpoint: {unet_checkpoint_path}")
-        unet_checkpoint_path = torch.load(unet_checkpoint_path, map_location="cpu")
-        if "global_step" in unet_checkpoint_path: zero_rank_print(f"global_step: {unet_checkpoint_path['global_step']}")
-        state_dict = unet_checkpoint_path["state_dict"] if "state_dict" in unet_checkpoint_path else unet_checkpoint_path
-        new_state_dict = {}
-        for k, val in state_dict.items():
-            new_state_dict[k.split('module.')[-1]] = val
-        m, u = unet.load_state_dict(new_state_dict, strict=False)
-        zero_rank_print(f"missing keys: {len(m)}, unexpected keys: {len(u)}")
-        assert len(u) == 0
-
     if motion_module_path != "":
         unet_state_dict = {}
         motion_module_state_dict = torch.load(motion_module_path, map_location="cpu")
@@ -206,6 +196,21 @@ def main(
         missing, unexpected = unet.load_state_dict(unet_state_dict, strict=False)
         zero_rank_print(f"missing keys: {len(missing)}, unexpected keys: {len(unexpected)}")
         del unet_state_dict
+
+    if moe:
+        unet = replace_ffn_with_moeffn(unet)
+
+    if unet_checkpoint_path != "":
+        zero_rank_print(f"from checkpoint: {unet_checkpoint_path}")
+        unet_checkpoint_path = torch.load(unet_checkpoint_path, map_location="cpu")
+        if "global_step" in unet_checkpoint_path: zero_rank_print(f"global_step: {unet_checkpoint_path['global_step']}")
+        state_dict = unet_checkpoint_path["state_dict"] if "state_dict" in unet_checkpoint_path else unet_checkpoint_path
+        new_state_dict = {}
+        for k, val in state_dict.items():
+            new_state_dict[k.split('module.')[-1]] = val
+        m, u = unet.load_state_dict(new_state_dict, strict=False)
+        zero_rank_print(f"missing keys: {len(m)}, unexpected keys: {len(u)}")
+        assert len(u) == 0
         
     # Freeze vae and text_encoder
     vae.requires_grad_(False)
@@ -272,36 +277,45 @@ def main(
 
     # Create mask generators with mix rates
     mask_generators = [
-        (StaticRectangularMaskGenerator(
+        ("inpaint", 
+         StaticRectangularMaskGenerator(
             mask_l=mask_config.static.mask_l,
             mask_r=mask_config.static.mask_r,
             mask_t=mask_config.static.mask_t,
             mask_b=mask_config.static.mask_b
-        ), mask_config.static.mix_rate),
+        ), 
+        mask_config.static.mix_rate),
         
-        (MovingRectangularMaskGenerator(
+        ("inpaint", 
+         MovingRectangularMaskGenerator(
             rect_height_range=mask_config.moving.rect_height_range,
             rect_width_range=mask_config.moving.rect_width_range
-        ), mask_config.moving.mix_rate),
+        ), 
+        mask_config.moving.mix_rate),
         
-        (MarginalMaskGenerator(
+        ("outpaint",
+         MarginalMaskGenerator(
             mask_l=mask_config.marginal.mask_l,
             mask_r=mask_config.marginal.mask_r,
             mask_t=mask_config.marginal.mask_t,
             mask_b=mask_config.marginal.mask_b
-        ), mask_config.marginal.mix_rate),
+        ), 
+        mask_config.marginal.mix_rate),
         
-        (InterpolationMaskGenerator(
+        ("interpolation",
+         InterpolationMaskGenerator(
             stride_range=mask_config.interpolation.stride_range
-        ), mask_config.interpolation.mix_rate)
+        ), 
+        mask_config.interpolation.mix_rate)
     ]
 
     # Define a placeholder for dataset-provided mask with its mix rate
     dataset_mask_mix_rate = mask_config.dataset_mask.mix_rate
 
-    generators = [gen[0] for gen in mask_generators]
+    generator_names = [gen[0] for gen in mask_generators]
+    generators = [gen[1] for gen in mask_generators]
 
-    mix_rates = [gen[1] for gen in mask_generators]
+    mix_rates = [gen[2] for gen in mask_generators]
     mix_rates.append(dataset_mask_mix_rate)
     total_rate = sum(mix_rates)
     normalized_rates = [rate / total_rate for rate in mix_rates]
@@ -341,7 +355,7 @@ def main(
 
     # DDP warpper
     unet.to(local_rank)
-    unet = DDP(unet, device_ids=[local_rank], output_device=local_rank)
+    unet = DDP(unet, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=True)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / gradient_accumulation_steps)
@@ -397,11 +411,16 @@ def main(
             # Randomly select a mask generator or use the pre-defined mask
             # NOTICE: the mask take in (b c f h w)
             # Add the dataset mask to the list
+            temporary_generator_names = generator_names + ["inpaint"]
             temporary_generators = generators + ["dataset_mask"]
 
             # Randomly select a mask generator or dataset mask based on mix rates
-            selected_mask_generator = random.choices(temporary_generators, weights=normalized_rates, k=1)[0]
-
+            selected_generator_name, selected_mask_generator = random.choices(
+                list(zip(temporary_generator_names, temporary_generators)),
+                weights=normalized_rates,
+                k=1
+            )[0]
+            
             # Apply the selected mask to the data
             if selected_mask_generator == "dataset_mask":
                 mask = batch["masks"].to(local_rank)  # Use the dataset-provided mask
@@ -482,10 +501,11 @@ def main(
             up_block_res_samples = [rearrange(d, "(b f) c h w -> b c f h w ", f=video_length) for d in up_block_res_samples]
 
             with torch.cuda.amp.autocast(enabled=mixed_precision_training):
-                model_pred = unet(noisy_latents, timesteps, encoder_hidden_states,
-                                    down_block_add_samples=down_block_res_samples,
-                                    mid_block_add_sample=mid_block_res_sample,
-                                    up_block_add_samples=up_block_res_samples,).sample
+                with task_context(selected_generator_name):
+                    model_pred = unet(noisy_latents, timesteps, encoder_hidden_states,
+                                        down_block_add_samples=down_block_res_samples,
+                                        mid_block_add_sample=mid_block_res_sample,
+                                        up_block_add_samples=up_block_res_samples,).sample
                 loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
 
             optimizer.zero_grad()
@@ -547,30 +567,35 @@ def main(
                     del vr
                     video = rearrange(video, "f h w c -> c f h w")
                     frame = torch.clone(torch.unsqueeze(video/255, dim=0)).to(local_rank)
-                    mask_generator = random.choice(mask_generators)
-                    mask = mask_generator(frame)
+
+                    selected_generator_name, selected_mask_generator = random.choices(
+                        list(zip(generator_names, generators)),
+                        k=1
+                    )[0]
+                    mask = selected_mask_generator(frame)
                     frame[mask==1]=0
                     mask = mask.to(local_rank)
                     frame = frame*2.-1.
                     mask = mask*2.-1.
 
                     masked_videos.append(((frame+1)/2).cpu())
-                    
-                    unipaint_sample = validation_pipeline(
-                        prompt = prompt,
-                        negative_prompt     = validation_data.unipaint_n_prompt,
-                        num_inference_steps = 25,
-                        guidance_scale      = 12.5,
-                        width               = 512,
-                        height              = 512,
-                        video_length        = 16,
 
-                        init_video = frame,
-                        mask_video = mask,
-                        brushnet_conditioning_scale = 1.0,
-                        control_guidance_start = 0.0,
-                        control_guidance_end = 1.0,
-                        ).videos
+                    with task_context(selected_generator_name):
+                        unipaint_sample = validation_pipeline(
+                            prompt = prompt,
+                            negative_prompt     = validation_data.unipaint_n_prompt,
+                            num_inference_steps = 25,
+                            guidance_scale      = 12.5,
+                            width               = 512,
+                            height              = 512,
+                            video_length        = 16,
+
+                            init_video = frame,
+                            mask_video = mask,
+                            brushnet_conditioning_scale = 1.0,
+                            control_guidance_start = 0.0,
+                            control_guidance_end = 1.0,
+                            ).videos
                     filled_videos.append(unipaint_sample)
                     unipaint_sample = torch.concat([((frame+1)/2).cpu(), unipaint_sample])
                     save_videos_grid(unipaint_sample, f"{output_dir}/samples/sample-{global_step}/{idx}_filled.gif")
@@ -582,14 +607,15 @@ def main(
 
                 for idx, prompt in enumerate(prompts):
                     if not image_finetune:
-                        sample = validation_pipeline(
-                            prompt,
-                            generator    = generator,
-                            video_length = train_data.num_frames,
-                            height       = height,
-                            width        = width,
-                            **validation_data,
-                        ).videos
+                        with task_context("inpaint"):
+                            sample = validation_pipeline(
+                                prompt,
+                                generator    = generator,
+                                video_length = train_data.num_frames,
+                                height       = height,
+                                width        = width,
+                                **validation_data,
+                            ).videos
                         save_videos_grid(sample, f"{output_dir}/samples/sample-{global_step}/{idx}.gif")
                         samples.append(sample)
                         

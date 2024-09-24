@@ -42,10 +42,12 @@ validation_data:
     - "outpaint_videos/SB_Dog1.mp4"
     - "outpaint_videos/SB_Running4.mp4"
   unipaint_prompt: 
-    - "A close-up of a bald eagle with a white head, sharp yellow beak, and piercing eyes. Its dark brown body contrasts with the watery blurred background"
-    - "A large brown bear walking through a grassy, wetland area. The bear’s thick fur and muscular frame stand out against the green surroundings, with trees blurred in the background."
-    - "a small, fluffy white dog, likely a Maltese, walking on a paved surface"
-    - "A muscular man running outdoors in a sleeveless shirt. The background shows trees and a soft, sunlit sky, suggesting early morning or late afternoon. His expression is focused and determined."
+    - "A close-up of a bald eagle with a white head, sharp yellow beak, and piercing eyes. Its dark brown body contrasts with the watery blurred background. Extremely realistic, high resolution."
+    - "A large brown bear walking through a grassy, wetland area. The bear’s thick fur and muscular frame stand out against the green surroundings, with trees blurred in the background.Extremely realistic, high resolution."
+    - "a small, fluffy white dog, likely a Maltese, walking on a paved surface. Extremely realistic, high resolution."
+    - "A muscular man running outdoors in a sleeveless shirt. The background shows trees and a soft, sunlit sky, suggesting early morning or late afternoon. His expression is focused and determined. Extremely realistic, high resolution."
+    # "A young woman with blonde hair and round yellow sunglasses stands by a body of water at sunset. Her hair blows gently in the wind as she gazes confidently at the camera, with the warm glow of the setting sun behind her. Extremely realistic, high resolution."
+    # "A young woman with straight brown hair smiles warmly at the camera. The soft, greenish-blue blurred background suggests an indoor setting, with lighting highlighting her friendly expression. Extremely realistic, high resolution."
   unipaint_n_prompt: "worst quality, low quality, letterboxed"
   prompts:
     - "Snow rocky mountains peaks canyon. Snow blanketed rocky mountains surround and shadow deep canyons."

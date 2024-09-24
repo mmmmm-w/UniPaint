@@ -833,7 +833,6 @@ class BrushNetModel(ModelMixin, ConfigMixin):
             down_block_res_sample = brushnet_down_block(down_block_res_sample)
             brushnet_down_block_res_samples = brushnet_down_block_res_samples + (down_block_res_sample,)
 
-
         # 5. mid
         if self.mid_block is not None:
             if hasattr(self.mid_block, "has_cross_attention") and self.mid_block.has_cross_attention:

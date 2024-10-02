@@ -78,7 +78,7 @@ def load_models(path, brushnet_path, motion_module_path, adapter_path,unet_check
     brushnet.requires_grad_(False)
     return pipeline
 
-def do_task(pipeline, task, prompt, n_prompt, video_path, save_path, device, dtype):
+def do_task(pipeline, task, prompt, n_prompt, video_path, mask_data, save_path, device, dtype):
     vr = decord.VideoReader(video_path, width=512, height=512)
     video = vr.get_batch(list(range(0,16)))
     video = rearrange(video, "f h w c -> c f h w")
@@ -109,9 +109,12 @@ def do_task(pipeline, task, prompt, n_prompt, video_path, save_path, device, dty
         mask = mask_generator(frame)
         context = "interpolation"
     elif task == "segment_inpaint":
-        mask = torch.tensor(np.unpackbits(data['mask']).reshape((16, 512, 512)))
-        mask = torch.cat([mask.unsqueeze(dim=0)]*3,dim=0).unsqueeze(dim=0)
+        mask = torch.tensor(np.unpackbits(mask_data['mask']).reshape((1,1,16, 512, 512))).expand(1,3,16,512,512)
         context = "inpaint"
+    elif task == "segment_outpaint":
+        mask = torch.tensor(np.unpackbits(mask_data['mask']).reshape((1,1,16, 512, 512))).expand(1,3,16,512,512)
+        mask = 1 - mask
+        context = "outpaint"
 
     frame[mask==1]=0
     mask = mask.to(device, dtype)
@@ -150,26 +153,28 @@ path = "models/StableDiffusion/stable-diffusion-v1-5"
 brushnet_path = "models/BrushNet/random_mask_brushnet_ckpt"
 motion_module_path = "models/Motion_Module/v3_sd15_mm.ckpt" if use_motion_module else ""
 adapter_path = "models/Motion_Module/v3_sd15_adapter.ckpt" if use_adapter else ""
-unet_checkpoint_path = "checkpoints/mixed_5.ckpt"
+unet_checkpoint_path = "checkpoints/mixed_4.ckpt"
 
 pipeline = load_models(path, brushnet_path, motion_module_path, adapter_path,unet_checkpoint_path,device, dtype)
 
 #data config
-vid = "Portrait1"
-scene_prompt = "A young woman with blonde hair and round yellow sunglasses stands by a body of water at sunset. Her hair blows gently in the wind as she gazes confidently at the camera, with the warm glow of the setting sun behind her."
-segment_prompt = "A very confident gay man with long hair"
+data_folder = "CI"
+vid = "Women6"
+scene_prompt = "a church hall with white greece columns"
+segment_prompt = ""
 
-video_path = f"outpaint_videos/SB_{vid}.mp4"
-data = np.load(f'outpaint_videos/SB_{vid}.npz')
-addtional_prompt = "Extremely realistic, high resolutionl."
-n_prompt = "worst quality, low quality, letterboxed, wood sticks, leaves, random shade"
+video_path = f"outpaint_videos/{data_folder}/{data_folder}_{vid}.mp4"
+mask_data = np.load(f'outpaint_videos/{data_folder}/{data_folder}_{vid}.npz')
+addtional_prompt = "Extremely realistic, high resolution."
+n_prompt = "worst quality, low quality, letterboxed, wood sticks, random shade"
 
 tasks = ["static_inpaint", "moving_inpaint", "segment_inpaint", "outpaint", "interpolation"]
+tasks = ["segment_outpaint"]
 for task in tasks:
     save_path = f"./samples/{vid}/{task}.gif"
     if task == "segment_inpaint":
         prompt = segment_prompt + addtional_prompt
     else:
         prompt = scene_prompt + addtional_prompt
-    do_task(pipeline, task, prompt, n_prompt, video_path, save_path, device, dtype)
+    do_task(pipeline, task, prompt, n_prompt, video_path, mask_data, save_path, device, dtype)
     

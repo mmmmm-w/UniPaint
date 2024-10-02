@@ -1,0 +1,1 @@
+python scripts/cut_videos.py --input_video_path outpaint_videos/CI/CI_Robot.mp4 --output_video_path outpaint_videos/CI/CI_Robot_.mp4 --start_frame 0 --num_frames 16 --step 2

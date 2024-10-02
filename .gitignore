@@ -10,7 +10,8 @@ ossutil_output/
 *.safetensors
 *.ckpt
 
-outpaint_videos/*
+*.npz
+*.gif
 data/*
 models/*
 !models/StableDiffusion/

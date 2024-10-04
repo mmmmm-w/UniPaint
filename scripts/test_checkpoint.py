@@ -10,7 +10,7 @@ from diffusers import AutoencoderKL, DDIMScheduler
 
 from unipaint.pipelines.pipeline_unipaint import AnimationPipeline
 from unipaint.models.unet import UNet3DConditionModel
-from unipaint.models.unipaint.brushnet import BrushNetModel
+from unipaint.models.unipaint.brushnet3d import BrushNetModel
 
 
 from unipaint.utils.util import load_weights,save_videos_grid
@@ -27,7 +27,8 @@ def load_models(path, brushnet_path, motion_module_path, adapter_path,unet_check
     vae              = AutoencoderKL.from_pretrained(path, subfolder="vae").to(device, dtype)
 
     inference_config = OmegaConf.load("configs/inference/inference-v3.yaml")
-    unet             = UNet3DConditionModel.from_pretrained_2d(path, subfolder="unet", unet_additional_kwargs=OmegaConf.to_container(inference_config.unet_additional_kwargs)).to(device, dtype)
+    unet_additional_kwargs = OmegaConf.to_container(inference_config.unet_additional_kwargs)
+    unet             = UNet3DConditionModel.from_pretrained_2d(path, subfolder="unet", unet_additional_kwargs=unet_additional_kwargs).to(device, dtype)
 
     #load brushnet
     brushnet = BrushNetModel.from_pretrained(brushnet_path, torch_dtype=dtype).to(device)
@@ -113,7 +114,11 @@ def do_task(pipeline, task, prompt, n_prompt, video_path, mask_data, save_path, 
         context = "inpaint"
     elif task == "segment_outpaint":
         mask = torch.tensor(np.unpackbits(mask_data['mask']).reshape((1,1,16, 512, 512))).expand(1,3,16,512,512)
-        mask = 1 - mask
+        mask = 1-mask
+        # from scipy.ndimage import binary_dilation
+        # mask = mask.numpy()
+        # mask = binary_dilation(mask, structure= np.ones((1,1,1, 1, 1), dtype=np.uint8))
+        # mask = torch.tensor(mask)
         context = "outpaint"
 
     frame[mask==1]=0
@@ -125,14 +130,14 @@ def do_task(pipeline, task, prompt, n_prompt, video_path, mask_data, save_path, 
             sample = pipeline(
                 prompt = prompt,
                 negative_prompt     = n_prompt,
-                num_inference_steps = 25,
+                num_inference_steps = 100,
                 guidance_scale      = 12.5,
                 width               = 512,
                 height              = 512,
                 video_length        = 16,
 
-                init_video = frame[:,:,:],
-                mask_video = mask[:,:,:],
+                init_video = frame,
+                mask_video = mask,
                 brushnet_conditioning_scale = 1.0,
                 control_guidance_start = 0.0,
                 control_guidance_end = 1.0,
@@ -158,15 +163,15 @@ unet_checkpoint_path = "checkpoints/mixed_4.ckpt"
 pipeline = load_models(path, brushnet_path, motion_module_path, adapter_path,unet_checkpoint_path,device, dtype)
 
 #data config
-data_folder = "CI"
-vid = "Women6"
-scene_prompt = "a church hall with white greece columns"
+data_folder = "DA"
+vid = "camel"
+scene_prompt = "A road made of crystal. blue backround. Future scene with tall buildings"
 segment_prompt = ""
 
 video_path = f"outpaint_videos/{data_folder}/{data_folder}_{vid}.mp4"
 mask_data = np.load(f'outpaint_videos/{data_folder}/{data_folder}_{vid}.npz')
 addtional_prompt = "Extremely realistic, high resolution."
-n_prompt = "worst quality, low quality, letterboxed, wood sticks, random shade"
+n_prompt = "worst quality, low quality, letterboxed, wood sticks, random shade, yellow, desert"
 
 tasks = ["static_inpaint", "moving_inpaint", "segment_inpaint", "outpaint", "interpolation"]
 tasks = ["segment_outpaint"]
@@ -177,4 +182,3 @@ for task in tasks:
     else:
         prompt = scene_prompt + addtional_prompt
     do_task(pipeline, task, prompt, n_prompt, video_path, mask_data, save_path, device, dtype)
-    

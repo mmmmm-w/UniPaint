@@ -28,7 +28,6 @@ from .attention_processor import (
     AttnAddedKVProcessor,
     AttnProcessor,
 )
-from einops import rearrange
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -730,10 +729,6 @@ class BrushNetModel(ModelMixin, ConfigMixin):
                 If `return_dict` is `True`, a [`~models.brushnet.BrushNetOutput`] is returned, otherwise a tuple is
                 returned where the first element is the sample tensor.
         """
-        #rearrage frame dimension into batch dimension
-        video_length = sample.shape[2]
-        sample = rearrange(sample, "b c f h w -> (b f) c h w")
-        brushnet_cond = rearrange(brushnet_cond, "b c f h w -> (b f) c h w")
         # check channel order
         channel_order = self.config.brushnet_conditioning_channel_order
 
@@ -837,7 +832,6 @@ class BrushNetModel(ModelMixin, ConfigMixin):
         for down_block_res_sample, brushnet_down_block in zip(down_block_res_samples, self.brushnet_down_blocks):
             down_block_res_sample = brushnet_down_block(down_block_res_sample)
             brushnet_down_block_res_samples = brushnet_down_block_res_samples + (down_block_res_sample,)
-
 
         # 5. mid
         if self.mid_block is not None:

@@ -465,6 +465,7 @@ class AnimationPipeline(DiffusionPipeline):
                     )
             conditioning_latents = torch.concat([conditioning_latents,mask],1)
             conditioning_latents = torch.concat([conditioning_latents]*2)
+            conditioning_latents = rearrange(conditioning_latents, "(b f) c h w -> b c f h w ", f=video_length)
 
         # Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
@@ -494,7 +495,6 @@ class AnimationPipeline(DiffusionPipeline):
                     assert controlnet_images.shape[2] >= len(controlnet_image_index)
                     controlnet_cond[:,:,controlnet_image_index] = controlnet_images[:,:,:len(controlnet_image_index)]
                     controlnet_conditioning_mask[:,:,controlnet_image_index] = 1
-
                     down_block_additional_residuals, mid_block_additional_residual = self.controlnet(
                         controlnet_noisy_latents, t,
                         encoder_hidden_states=controlnet_prompt_embeds,
@@ -503,8 +503,7 @@ class AnimationPipeline(DiffusionPipeline):
                         conditioning_scale=controlnet_conditioning_scale,
                         guess_mode=False, return_dict=False,
                     )
-                
-                down_block_res_samples = mid_block_res_sample = up_block_res_samples = None
+
                 if (getattr(self, "brushnet", None) != None) and (init_video != None) and (mask_video != None):
 
                     #Concat init and mask *2
@@ -519,8 +518,6 @@ class AnimationPipeline(DiffusionPipeline):
                             brushnet_cond_scale = brushnet_cond_scale[0]
                         cond_scale = brushnet_cond_scale * brushnet_keep[i]
 
-                    control_model_input = rearrange(control_model_input, "b c f h w -> (b f) c h w")
-
                     down_block_res_samples, mid_block_res_sample, up_block_res_samples = self.brushnet(
                         control_model_input,
                         t,
@@ -529,10 +526,6 @@ class AnimationPipeline(DiffusionPipeline):
                         conditioning_scale=cond_scale,
                         return_dict=False,
                     )
-
-                    down_block_res_samples = [rearrange(d, "(b f) c h w -> b c f h w ", f=video_length) for d in down_block_res_samples]
-                    mid_block_res_sample = rearrange(mid_block_res_sample, "(b f) c h w -> b c f h w ", f=video_length)
-                    up_block_res_samples = [rearrange(d, "(b f) c h w -> b c f h w ", f=video_length) for d in up_block_res_samples]
 
                 # predict the noise residual
                 noise_pred = self.unet(

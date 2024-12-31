@@ -18,6 +18,7 @@ import torch
 import torchvision
 import torch.nn.functional as F
 import torch.distributed as dist
+from torch.utils.data import ConcatDataset
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
@@ -32,6 +33,7 @@ from diffusers.utils.import_utils import is_xformers_available
 from transformers import CLIPTextModel, CLIPTokenizer
 
 from unipaint.data.ytvos import YTVOSDataset
+from unipaint.data.dataset import WebVid10M
 from unipaint.models.unet import UNet3DConditionModel
 from unipaint.pipelines.pipeline_unipaint import AnimationPipeline
 from unipaint.models.unipaint.brushnet import BrushNetModel
@@ -255,7 +257,13 @@ def main(
     brushnet.to(local_rank)
 
     # Get the training dataset
-    train_dataset = YTVOSDataset(**train_data)
+    if train_data.mix_data:
+        dataset1 = WebVid10M(**train_data.webvid)
+        dataset2 = YTVOSDataset(**train_data.ytvos)
+        train_dataset = ConcatDataset([dataset1,dataset2])
+    else:
+        train_dataset = YTVOSDataset(**train_data.ytvos)
+    
     distributed_sampler = DistributedSampler(
         train_dataset,
         num_replicas=num_processes,
@@ -552,98 +560,96 @@ def main(
                 
             # Periodically validation
             if is_main_process and (global_step % validation_steps == 0 or global_step in validation_steps_tuple):
-                generator = torch.Generator(device=latents.device)
-                generator.manual_seed(global_seed)
-                masked_videos = []
-                filled_videos = []
-                samples = []
+                with torch.no_grad():
+                    generator = torch.Generator(device=latents.device)
+                    generator.manual_seed(global_seed)
+                    masked_videos = []
+                    filled_videos = []
+                    samples = []
 
-                video_paths = validation_data.video_path
-                unipaint_prompts = validation_data.unipaint_prompt
+                    video_paths = validation_data.video_path
+                    unipaint_prompts = validation_data.unipaint_prompt
 
-                for idx, (video_path, prompt) in enumerate(zip(video_paths, unipaint_prompts)):
-                    vr = decord.VideoReader(video_path, width=512, height=512)
-                    video = vr.get_batch(list(range(0,16)))
-                    del vr
-                    video = rearrange(video, "f h w c -> c f h w")
-                    frame = torch.clone(torch.unsqueeze(video/255, dim=0)).to(local_rank)
+                    for idx, (video_path, prompt) in enumerate(zip(video_paths, unipaint_prompts)):
+                        vr = decord.VideoReader(video_path, width=512, height=512)
+                        video = vr.get_batch(list(range(0,16)))
+                        del vr
+                        video = rearrange(video, "f h w c -> c f h w")
+                        frame = torch.clone(torch.unsqueeze(video/255, dim=0)).to(local_rank)
 
-                    selected_generator_name, selected_mask_generator = random.choices(
-                        list(zip(generator_names, generators)),
-                        k=1
-                    )[0]
-                    mask = selected_mask_generator(frame)
-                    frame[mask==1]=0
-                    mask = mask.to(local_rank)
-                    frame = frame*2.-1.
-                    mask = mask*2.-1.
+                        selected_generator_name, selected_mask_generator = random.choices(
+                            list(zip(generator_names, generators)),
+                            k=1
+                        )[0]
+                        mask = selected_mask_generator(frame)
+                        frame[mask==1]=0
+                        mask = mask.to(local_rank)
+                        frame = frame*2.-1.
+                        mask = mask*2.-1.
 
-                    masked_videos.append(((frame+1)/2).cpu())
+                        masked_videos.append(((frame+1)/2).cpu())
 
-                    with task_context(selected_generator_name):
-                        unipaint_sample = validation_pipeline(
-                            prompt = prompt,
-                            negative_prompt     = validation_data.unipaint_n_prompt,
-                            num_inference_steps = 25,
-                            guidance_scale      = 12.5,
-                            width               = 512,
-                            height              = 512,
-                            video_length        = 16,
+                        with task_context(selected_generator_name):
+                            unipaint_sample = validation_pipeline(
+                                prompt = prompt,
+                                negative_prompt     = validation_data.unipaint_n_prompt,
+                                num_inference_steps = validation_data.get("num_inference_steps", 25),
+                                guidance_scale      = 12.5,
+                                width               = 512,
+                                height              = 512,
+                                video_length        = 16,
 
-                            init_video = frame,
-                            mask_video = mask,
-                            brushnet_conditioning_scale = 1.0,
-                            control_guidance_start = 0.0,
-                            control_guidance_end = 1.0,
-                            ).videos
-                    filled_videos.append(unipaint_sample)
-                    unipaint_sample = torch.concat([((frame+1)/2).cpu(), unipaint_sample])
-                    save_videos_grid(unipaint_sample, f"{output_dir}/samples/sample-{global_step}/{idx}_filled.gif")
-                
-                height = train_data.sample_size[0] if not isinstance(train_data.sample_size, int) else train_data.sample_size
-                width  = train_data.sample_size[1] if not isinstance(train_data.sample_size, int) else train_data.sample_size
+                                init_video = frame,
+                                mask_video = mask,
+                                brushnet_conditioning_scale = 1.0,
+                                control_guidance_start = 0.0,
+                                control_guidance_end = 1.0,
+                                ).videos
+                        filled_videos.append(unipaint_sample)
+                        unipaint_sample = torch.concat([((frame+1)/2).cpu(), unipaint_sample])
+                        save_videos_grid(unipaint_sample, f"{output_dir}/samples/sample-{global_step}/{idx}_filled.gif")
 
-                prompts = validation_data.prompts[:2] if global_step < 1000 and (not image_finetune) else validation_data.prompts
+                    prompts = validation_data.prompts[:2] if global_step < 1000 and (not image_finetune) else validation_data.prompts
 
-                for idx, prompt in enumerate(prompts):
-                    if not image_finetune:
-                        with task_context("inpaint"):
+                    for idx, prompt in enumerate(prompts):
+                        if not image_finetune:
+                            with task_context("inpaint"):
+                                sample = validation_pipeline(
+                                    prompt,
+                                    generator    = generator,
+                                    video_length = 16,
+                                    height       = 512,
+                                    width        = 512,
+                                    **validation_data,
+                                ).videos
+                            save_videos_grid(sample, f"{output_dir}/samples/sample-{global_step}/{idx}.gif")
+                            samples.append(sample)
+                            
+                        else:
                             sample = validation_pipeline(
                                 prompt,
-                                generator    = generator,
-                                video_length = train_data.num_frames,
-                                height       = height,
-                                width        = width,
-                                **validation_data,
-                            ).videos
-                        save_videos_grid(sample, f"{output_dir}/samples/sample-{global_step}/{idx}.gif")
-                        samples.append(sample)
+                                generator           = generator,
+                                height              = 512,
+                                width               = 512,
+                                num_inference_steps = validation_data.get("num_inference_steps", 25),
+                                guidance_scale      = validation_data.get("guidance_scale", 8.),
+                            ).images[0]
+                            sample = torchvision.transforms.functional.to_tensor(sample)
+                            samples.append(sample)
+                    
+                    if not image_finetune:
+                        samples = torch.concat(samples)
+                        filled_videos = torch.concat(masked_videos+filled_videos)
+                        save_path = f"{output_dir}/samples/sample-{global_step}.gif"
+                        save_videos_grid(samples, save_path)
+                        save_videos_grid(filled_videos, f"{output_dir}/samples/sample-{global_step}_filled.gif", n_rows=4)
                         
                     else:
-                        sample = validation_pipeline(
-                            prompt,
-                            generator           = generator,
-                            height              = height,
-                            width               = width,
-                            num_inference_steps = validation_data.get("num_inference_steps", 25),
-                            guidance_scale      = validation_data.get("guidance_scale", 8.),
-                        ).images[0]
-                        sample = torchvision.transforms.functional.to_tensor(sample)
-                        samples.append(sample)
-                
-                if not image_finetune:
-                    samples = torch.concat(samples)
-                    filled_videos = torch.concat(masked_videos+filled_videos)
-                    save_path = f"{output_dir}/samples/sample-{global_step}.gif"
-                    save_videos_grid(samples, save_path)
-                    save_videos_grid(filled_videos, f"{output_dir}/samples/sample-{global_step}_filled.gif", n_rows=4)
-                    
-                else:
-                    samples = torch.stack(samples)
-                    save_path = f"{output_dir}/samples/sample-{global_step}.png"
-                    torchvision.utils.save_image(samples, save_path, nrow=4)
+                        samples = torch.stack(samples)
+                        save_path = f"{output_dir}/samples/sample-{global_step}.png"
+                        torchvision.utils.save_image(samples, save_path, nrow=4)
 
-                logging.info(f"Saved samples to {save_path}")
+                    logging.info(f"Saved samples to {save_path}")
                 
             logs = {"step_loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)

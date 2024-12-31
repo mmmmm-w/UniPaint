@@ -37,7 +37,6 @@ class YTVOSDataset(Dataset):
         self.img_folder = img_folder     
         self.ann_file = ann_file         
         self._transforms = T.Compose([
-            T.RandomHorizontalFlip(),
             T.RandomResize([sample_size]),
             T.CenterCrop((sample_size,sample_size)),
             T.Check(),

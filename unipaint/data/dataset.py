@@ -2,11 +2,12 @@ import os, io, csv, math, random
 import numpy as np
 from einops import rearrange
 from decord import VideoReader
+import decord
+decord.bridge.set_bridge("torch")
 
 import torch
 import torchvision.transforms as transforms
 from torch.utils.data.dataset import Dataset
-from unipaint.utils.util import zero_rank_print
 
 
 
@@ -17,11 +18,11 @@ class WebVid10M(Dataset):
             sample_size=256, sample_stride=4, sample_n_frames=16,
             is_image=False,
         ):
-        zero_rank_print(f"loading annotations from {csv_path} ...")
+        print(f"loading annotations from {csv_path} ...")
         with open(csv_path, 'r') as csvfile:
             self.dataset = list(csv.DictReader(csvfile))
         self.length = len(self.dataset)
-        zero_rank_print(f"data scale: {self.length}")
+        print(f"data scale: {self.length}")
 
         self.video_folder    = video_folder
         self.sample_stride   = sample_stride
@@ -30,7 +31,6 @@ class WebVid10M(Dataset):
         
         sample_size = tuple(sample_size) if not isinstance(sample_size, int) else (sample_size, sample_size)
         self.pixel_transforms = transforms.Compose([
-            transforms.RandomHorizontalFlip(),
             transforms.Resize(sample_size[0]),
             transforms.CenterCrop(sample_size),
             transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True),
@@ -58,7 +58,9 @@ class WebVid10M(Dataset):
         if self.is_image:
             pixel_values = pixel_values[0]
         
-        return pixel_values, name
+        masks=torch.ones_like(pixel_values)
+        
+        return pixel_values, name, masks
 
     def __len__(self):
         return self.length
@@ -66,14 +68,14 @@ class WebVid10M(Dataset):
     def __getitem__(self, idx):
         while True:
             try:
-                pixel_values, name = self.get_batch(idx)
+                pixel_values, name, masks = self.get_batch(idx)
                 break
 
             except Exception as e:
                 idx = random.randint(0, self.length-1)
 
         pixel_values = self.pixel_transforms(pixel_values)
-        sample = dict(pixel_values=pixel_values, text=name)
+        sample = dict(pixel_values=pixel_values, text=name, masks=masks)
         return sample
 
 

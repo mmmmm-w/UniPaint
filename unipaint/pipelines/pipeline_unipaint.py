@@ -29,7 +29,7 @@ from einops import rearrange
 
 from ..models.unet import UNet3DConditionModel
 from ..models.sparse_controlnet import SparseControlNetModel
-from ..models.unipaint.brushnet3d import BrushNetModel
+from ..models.unipaint.brushnet import BrushNetModel
 import pdb
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name

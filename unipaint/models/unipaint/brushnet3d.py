@@ -29,6 +29,7 @@ from .attention_processor import (
     AttnProcessor,
 )
 
+from einops import rearrange
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
@@ -760,7 +761,7 @@ class BrushNetModel(ModelMixin, ConfigMixin):
             timesteps = timesteps[None].to(sample.device)
 
         # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
-        timesteps = timesteps.expand(sample.shape[0])
+        timesteps = timesteps.expand(sample.shape[0]*sample.shape[2])
 
         t_emb = self.time_proj(timesteps)
 
@@ -807,9 +808,10 @@ class BrushNetModel(ModelMixin, ConfigMixin):
         emb = emb + aug_emb if aug_emb is not None else emb
 
         # 2. pre-process
+        video_length = brushnet_cond.shape[2]
         brushnet_cond=torch.concat([sample,brushnet_cond],1)
+        brushnet_cond = rearrange(brushnet_cond, "b c f h w -> (b f) c h w")
         sample = self.conv_in_condition(brushnet_cond)
-
 
         # 3. down
         down_block_res_samples = (sample,)
@@ -900,9 +902,9 @@ class BrushNetModel(ModelMixin, ConfigMixin):
             brushnet_mid_block_res_sample = brushnet_mid_block_res_sample * scales[len(brushnet_down_block_res_samples)]
             brushnet_up_block_res_samples = [sample * scale for sample, scale in zip(brushnet_up_block_res_samples, scales[len(brushnet_down_block_res_samples)+1:])]
         else:
-            brushnet_down_block_res_samples = [sample * conditioning_scale for sample in brushnet_down_block_res_samples]
-            brushnet_mid_block_res_sample = brushnet_mid_block_res_sample * conditioning_scale
-            brushnet_up_block_res_samples = [sample * conditioning_scale for sample in brushnet_up_block_res_samples]
+            brushnet_down_block_res_samples = [rearrange(sample, "(b f) c h w -> b c f h w ", f=video_length) * conditioning_scale for sample in brushnet_down_block_res_samples]
+            brushnet_mid_block_res_sample = rearrange(brushnet_mid_block_res_sample, "(b f) c h w -> b c f h w ", f=video_length) * conditioning_scale
+            brushnet_up_block_res_samples = [rearrange(sample, "(b f) c h w -> b c f h w ", f=video_length) * conditioning_scale for sample in brushnet_up_block_res_samples]
 
 
         if self.config.global_pool_conditions:

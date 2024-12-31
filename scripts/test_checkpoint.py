@@ -10,7 +10,7 @@ from diffusers import AutoencoderKL, DDIMScheduler
 
 from unipaint.pipelines.pipeline_unipaint import AnimationPipeline
 from unipaint.models.unet import UNet3DConditionModel
-from unipaint.models.unipaint.brushnet3d import BrushNetModel
+from unipaint.models.unipaint.brushnet import BrushNetModel
 
 
 from unipaint.utils.util import load_weights,save_videos_grid
@@ -20,13 +20,14 @@ from unipaint.utils.convert_to_moe import task_context, replace_ffn_with_moeffn
 import decord
 decord.bridge.set_bridge("torch")
 
-def load_models(path, brushnet_path, motion_module_path, adapter_path,unet_checkpoint_path, device, dtype):
+def load_models(path, brushnet_path, motion_module_path, adapter_path, unet_checkpoint_path, device, dtype):
     #load base model
     tokenizer        = CLIPTokenizer.from_pretrained(path, subfolder="tokenizer", torch_dtype=dtype)
     text_encoder     = CLIPTextModel.from_pretrained(path, subfolder="text_encoder").to(device,dtype)
     vae              = AutoencoderKL.from_pretrained(path, subfolder="vae").to(device, dtype)
 
     inference_config = OmegaConf.load("configs/inference/inference-v3.yaml")
+    # inference_config = OmegaConf.load("configs/unipaint/training_mix_data.yaml")
     unet_additional_kwargs = OmegaConf.to_container(inference_config.unet_additional_kwargs)
     unet             = UNet3DConditionModel.from_pretrained_2d(path, subfolder="unet", unet_additional_kwargs=unet_additional_kwargs).to(device, dtype)
 
@@ -79,7 +80,7 @@ def load_models(path, brushnet_path, motion_module_path, adapter_path,unet_check
     brushnet.requires_grad_(False)
     return pipeline
 
-def do_task(pipeline, task, prompt, n_prompt, video_path, mask_data, save_path, device, dtype):
+def do_task(pipeline, task, prompt, n_prompt, video_path, mask_data, save_path, device, dtype, repeat=1):
     vr = decord.VideoReader(video_path, width=512, height=512)
     video = vr.get_batch(list(range(0,16)))
     video = rearrange(video, "f h w c -> c f h w")
@@ -94,8 +95,8 @@ def do_task(pipeline, task, prompt, n_prompt, video_path, mask_data, save_path, 
         mask = mask_generator(frame)
         context = "inpaint"
     elif task == "moving_inpaint":
-        mask_generator = MovingRectangularMaskGenerator(rect_height_range=(0.2,0.5),
-                                                        rect_width_range=(0.2,0.5))
+        mask_generator = MovingRectangularMaskGenerator(rect_height_range=(0.4,0.5),
+                                                        rect_width_range=(0.4,0.5))
         mask = mask_generator(frame)
         context = "inpaint"
     elif task == "outpaint":
@@ -111,6 +112,10 @@ def do_task(pipeline, task, prompt, n_prompt, video_path, mask_data, save_path, 
         context = "interpolation"
     elif task == "segment_inpaint":
         mask = torch.tensor(np.unpackbits(mask_data['mask']).reshape((1,1,16, 512, 512))).expand(1,3,16,512,512)
+        from scipy.ndimage import binary_dilation
+        mask = mask.numpy()
+        mask = binary_dilation(mask, structure= np.ones((1,1,1, 5, 5), dtype=np.uint8))
+        mask = torch.tensor(mask)
         context = "inpaint"
     elif task == "segment_outpaint":
         mask = torch.tensor(np.unpackbits(mask_data['mask']).reshape((1,1,16, 512, 512))).expand(1,3,16,512,512)
@@ -119,7 +124,12 @@ def do_task(pipeline, task, prompt, n_prompt, video_path, mask_data, save_path, 
         # mask = mask.numpy()
         # mask = binary_dilation(mask, structure= np.ones((1,1,1, 1, 1), dtype=np.uint8))
         # mask = torch.tensor(mask)
-        context = "outpaint"
+
+    mask = torch.zeros_like(frame)
+    mask[...,:113,:] = 1
+    mask[...,398:,:] = 1
+    # mask[...,120:430,30:210] = 1
+
 
     frame[mask==1]=0
     mask = mask.to(device, dtype)
@@ -128,16 +138,16 @@ def do_task(pipeline, task, prompt, n_prompt, video_path, mask_data, save_path, 
     with torch.no_grad():
         with task_context(context):
             sample = pipeline(
-                prompt = prompt,
-                negative_prompt     = n_prompt,
+                prompt = [prompt]*repeat,
+                negative_prompt     = [n_prompt]*repeat,
                 num_inference_steps = 100,
-                guidance_scale      = 12.5,
+                guidance_scale      = 20,
                 width               = 512,
                 height              = 512,
                 video_length        = 16,
 
-                init_video = frame,
-                mask_video = mask,
+                init_video = torch.cat([frame]*repeat,dim=0),
+                mask_video = torch.cat([mask]*repeat,dim=0),
                 brushnet_conditioning_scale = 1.0,
                 control_guidance_start = 0.0,
                 control_guidance_end = 1.0,
@@ -146,7 +156,7 @@ def do_task(pipeline, task, prompt, n_prompt, video_path, mask_data, save_path, 
     save_videos_grid(sample, save_path)
 
 #running config
-device = "cuda:3"
+device = "cuda:7"
 dtype = torch.float16
 
 #model config
@@ -160,25 +170,28 @@ motion_module_path = "models/Motion_Module/v3_sd15_mm.ckpt" if use_motion_module
 adapter_path = "models/Motion_Module/v3_sd15_adapter.ckpt" if use_adapter else ""
 unet_checkpoint_path = "checkpoints/mixed_4.ckpt"
 
-pipeline = load_models(path, brushnet_path, motion_module_path, adapter_path,unet_checkpoint_path,device, dtype)
+pipeline = load_models(path, brushnet_path, motion_module_path, adapter_path, unet_checkpoint_path, device, dtype)
 
 #data config
-data_folder = "DA"
-vid = "camel"
-scene_prompt = "A road made of crystal. blue backround. Future scene with tall buildings"
+data_folder = "Compare"
+vid = "tiger_waterfall"
+scene_prompt = "A tiger walking on a bridge"
 segment_prompt = ""
 
 video_path = f"outpaint_videos/{data_folder}/{data_folder}_{vid}.mp4"
-mask_data = np.load(f'outpaint_videos/{data_folder}/{data_folder}_{vid}.npz')
-addtional_prompt = "Extremely realistic, high resolution."
-n_prompt = "worst quality, low quality, letterboxed, wood sticks, random shade, yellow, desert"
+# mask_data = np.load(f'outpaint_videos/{data_folder}/{data_folder}_{vid}.npz')
+mask_data = None
+addtional_prompt = ""
+n_prompt = ""
+
+repeat=1
 
 tasks = ["static_inpaint", "moving_inpaint", "segment_inpaint", "outpaint", "interpolation"]
-tasks = ["segment_outpaint"]
+tasks = ["outpaint"]
 for task in tasks:
     save_path = f"./samples/{vid}/{task}.gif"
     if task == "segment_inpaint":
         prompt = segment_prompt + addtional_prompt
     else:
         prompt = scene_prompt + addtional_prompt
-    do_task(pipeline, task, prompt, n_prompt, video_path, mask_data, save_path, device, dtype)
+    do_task(pipeline, task, prompt, n_prompt, video_path, mask_data, save_path, device, dtype, repeat)

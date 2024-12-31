@@ -1,0 +1,1 @@
+python scripts/cut_videos.py --input_video_path outpaint_videos/Compare/tiger_waterfall.mp4 --output_video_path outpaint_videos/Compare/Compare_tiger_waterfall.mp4 --start_frame 0 --num_frames 16 --step 1

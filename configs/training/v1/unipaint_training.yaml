@@ -32,7 +32,7 @@ train_data:
   csv_path:        "data/webvid-10M/train.csv"
   video_folder:    "/mnt/data/user/fan_xiaoran/data/videos/webvid-10M/videos"
   sample_size:     256
-  sample_stride:   4
+  sample_stride:   3
   sample_n_frames: 16
 
 validation_data:
